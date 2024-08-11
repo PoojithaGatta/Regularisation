@@ -3,8 +3,6 @@ import numpy as np
 import svgwrite
 from svgpathtools import svg2paths, parse_path
 from lxml import etree
-import matplotlib.pyplot as plt
-from svgpathtools import Line, CubicBezier, QuadraticBezier, Arc
 
 def load_svg(file_path):
     """Load SVG file and extract paths."""
@@ -27,54 +25,20 @@ def svg_path_to_contours(file_path):
         width = float(viewBox[2])
         height = float(viewBox[3])
 
-    # Create a blank image with a white background
-    img = np.ones((int(height), int(width)), np.uint8) * 255
+    # Create a blank image
+    img = np.zeros((int(height), int(width)), np.uint8)
 
-    def draw_path(path_data):
-        """Draw individual path onto the image with smooth curves."""
-        # Initialize an array to collect points for drawing
-        points = []
-        
-        for segment in path_data:
-            if isinstance(segment, Line):
-                points.extend([(segment.start.real, segment.start.imag), (segment.end.real, segment.end.imag)])
-            elif isinstance(segment, CubicBezier):
-                # Sample points along the cubic bezier curve
-                for t in np.linspace(0, 1, num=100):
-                    pt = segment.point(t)
-                    points.append((pt.real, pt.imag))
-            elif isinstance(segment, QuadraticBezier):
-                # Sample points along the quadratic bezier curve
-                for t in np.linspace(0, 1, num=100):
-                    pt = segment.point(t)
-                    points.append((pt.real, pt.imag))
-            elif isinstance(segment, Arc):
-                # Approximate the arc with line segments
-                num_segments = 100
-                for i in range(num_segments):
-                    t = i / (num_segments - 1)
-                    pt = segment.point(t)
-                    points.append((pt.real, pt.imag))
-
-        # Convert points to an array and draw
-        points = np.array(points, np.int32)
-        if len(points) > 1:
-            cv2.polylines(img, [points], isClosed=False, color=(0, 0, 0), thickness=1)
-
-    # Iterate over all SVG elements
+    # Draw paths onto the image
     for element in root.iter('{http://www.w3.org/2000/svg}path'):
         d = element.attrib['d']
-        path_data = parse_path(d)
-        draw_path(path_data)
+        path = parse_path(d)
+        points = [(segment.start.real, segment.start.imag) for segment in path]
+        points = np.array(points, np.int32).reshape((-1, 1, 2))
+        cv2.polylines(img, [points], isClosed=True, color=(255, 255, 255), thickness=1)
 
     # Detect contours in the image
     contours, _ = cv2.findContours(img, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    # Smooth the contours
-    img_smooth = cv2.GaussianBlur(img, (5, 5), 0)
-    contours, _ = cv2.findContours(img_smooth, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-
-    return contours, img
+    return contours
 
 def is_circle(contour):
     """Determine if a contour is approximately a circle."""
@@ -82,9 +46,9 @@ def is_circle(contour):
     area = cv2.contourArea(contour)
     if perimeter == 0 or area == 0:
         return False
-    
+
     circularity = 4 * np.pi * (area / (perimeter * perimeter))
-    
+
     if 0.8 < circularity < 1.2:
         x, y, w, h = cv2.boundingRect(contour)
         aspect_ratio = float(w) / h
@@ -124,19 +88,13 @@ def draw_svg(approximations, file_name):
     dwg.save()
 
 # Load the SVG files
-paths, attributes = load_svg('frag2.svg')
+paths, attributes = load_svg('isolated.svg')
 
 # Convert SVG path data to contours
-contours, img = svg_path_to_contours('frag2.svg')
+contours = svg_path_to_contours('isolated.svg')
 
 # Approximate the hand-drawn shapes
 approximations = approximate_shapes(contours)
 
 # Draw the new SVG with approximated shapes
-draw_svg(approximations, 'frag2_sol.svg') 
-
-# Display the final image with a white background
-plt.imshow(img, cmap='gray')
-plt.title('Processed Image with Contours')
-plt.axis('off')
-plt.show()
+draw_svg(approximations, 'isolated_sol.svg')
